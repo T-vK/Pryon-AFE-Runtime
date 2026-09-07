@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.repository_owner != ''
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build golang-go shellcheck ffmpeg
+      - name: Install Java
+        run: sudo apt-get update && sudo apt-get install -y openjdk-17-jre-headless
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;26.3.11579264"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
+      - name: Install Draw.io exporter
+        run: |
+          drawio_version=24.7.17
+          drawio_url="https://github.com/jgraph/drawio-desktop/releases/download/v${drawio_version}/drawio-x86_64-${drawio_version}.AppImage"
+          drawio_sha256=f378ffee9c426106c2e43d11786b3d2042454f1fb8d001bb1afa31a98463db02
+          curl --fail --location --retry 3 "$drawio_url" --output "$RUNNER_TEMP/drawio.AppImage"
+          echo "$drawio_sha256  $RUNNER_TEMP/drawio.AppImage" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/drawio.AppImage"
+          echo "DRAWIO=$RUNNER_TEMP/drawio.AppImage" >> "$GITHUB_ENV"
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+          echo "ELECTRON_DISABLE_SANDBOX=1" >> "$GITHUB_ENV"
+      - name: Build release targets
+        run: |
+          make check
+          make build-android
+      - name: Render release diagram
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1280x1024x24' timeout 60 tools/render-diagrams.sh release-assets
+      - name: Install release tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/semantic-release" --no-save --ignore-scripts --no-audit --no-fund \
+            semantic-release@24.2.3 \
+            @semantic-release/commit-analyzer@13.0.1 \
+            @semantic-release/release-notes-generator@14.0.3 \
+            @semantic-release/exec@7.1.0 \
+            @semantic-release/github@11.0.1 \
+            conventional-changelog-conventionalcommits@8.0.0
+      - name: Semantic release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_PATH: ${{ runner.temp }}/semantic-release/node_modules
+        run: "$RUNNER_TEMP/semantic-release/node_modules/.bin/semantic-release --extends ./.github/release/release.config.cjs"

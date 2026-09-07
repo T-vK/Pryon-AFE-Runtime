@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build shellcheck golang-go ffmpeg
+      - name: Configure and test
+        run: make check
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Java
+        if: ${{ env.ACT_SKIP_JAVA_INSTALL != '1' }}
+        run: sudo apt-get update && sudo apt-get install -y openjdk-17-jre-headless
+      - uses: android-actions/setup-android@v3
+        if: ${{ env.ACT_SKIP_ANDROID_SETUP != '1' }}
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Install NDK
+        if: ${{ env.ACT_SKIP_ANDROID_NDK_INSTALL != '1' }}
+        run: sdkmanager "ndk;26.3.11579264"
+      - name: Cross-build Android ARMv7
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        run: make build-android
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+      - name: Install shellcheck and FFmpeg
+        if: ${{ env.ACT_SKIP_SHELLCHECK_INSTALL != '1' }}
+        run: sudo apt-get update && sudo apt-get install -y shellcheck ffmpeg
+      - run: python3 -m py_compile examples/python/pryon_afe.py
+      - run: python3 tests/converters_test.py .
+      - run: (cd examples/go && go test ./...)
+      - run: shellcheck -S warning examples/bash/*.sh tools/*.sh tools/internal/*.sh tests/*.sh
