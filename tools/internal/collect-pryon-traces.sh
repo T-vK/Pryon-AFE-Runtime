@@ -2,7 +2,7 @@
 set -eu
 
 # Collect reproducible real-firmware callback traces.  Inputs are raw 9-channel
-# S24_3LE files, kept outside the repository.  The QEMU console log is the
+# S24_3LE files, kept outside the repository. The emulator console log is the
 # primary record: it includes loader/model/lifecycle messages, raw callback
 # bytes (when PRYON_DUMP_EVENTS is enabled), and process status.
 
@@ -13,7 +13,7 @@ PRYON=''
 CORPUS=''
 OUT=${PRYON_TRACE_OUT:-"$PWD/pryon-traces-$(date -u +%Y%m%dT%H%M%SZ)"}
 MODEL_DIR=/system/local/models/keyword/en-US/ALEXA
-TIMEOUT=${QEMU_TIMEOUT:-45}
+TIMEOUT=${EMULATOR_TIMEOUT:-45}
 PROJECT_ROOT=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 
 usage() {
@@ -116,10 +116,10 @@ for input in "$@"; do
   bytes=$(wc -c < "$input" | tr -d ' ')
   start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   set +e
-  PRYON_DUMP_EVENTS=1 PRYON_TRACE=1 QEMU_TIMEOUT="$TIMEOUT" \
-    "$PROJECT_ROOT/tools/run-qemu-system.sh" --root "$ROOT" --kernel "$KERNEL" \
+  PRYON_DUMP_EVENTS=1 PRYON_TRACE=1 EMULATOR_TIMEOUT="$TIMEOUT" \
+    "$PROJECT_ROOT/tools/run-emulator.sh" --root "$ROOT" --kernel "$KERNEL" \
     --mode pipeline --afe-binary "$AFE" --pryon-binary "$PRYON" \
-    --model-dir "$MODEL_DIR" --input "$input" >"$case_dir/qemu.log" 2>&1
+    --model-dir "$MODEL_DIR" --input "$input" >"$case_dir/emulator.log" 2>&1
   status=$?
   set -e
   end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -127,11 +127,11 @@ for input in "$@"; do
 import json, sys
 index, name, path, sha, size, status, start, end = sys.argv[1:]
 json.dump({'case': name, 'input': path,
-           'sha256': sha, 'bytes': int(size), 'qemu_status': int(status),
+           'sha256': sha, 'bytes': int(size), 'emulator_status': int(status),
            'started_utc': start, 'finished_utc': end}, open(index, 'a'))
 open(index, 'a').write('\n')
 PY
-  echo "trace: $case_name status=$status log=$case_dir/qemu.log"
+  echo "trace: $case_name status=$status log=$case_dir/emulator.log"
 done
 
 echo "trace: collection complete: $OUT"

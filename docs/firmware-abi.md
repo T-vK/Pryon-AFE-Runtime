@@ -9,13 +9,13 @@ declarations are hand-maintained observations used through `dlopen` and
 Static inspection confirms the exports, call sites, model paths, and dependency
 tree. Host mocks validate the adapter's ordering, buffering, and cleanup. The
 parameterized AFE profile and the simple PCM Pryon profile have been executed
-with the supplied Biscuit firmware under ARMv7 system QEMU. QEMU validation
+with the supplied Biscuit firmware in the ARMv7 emulator. Emulator validation
 includes real model creation, finite PCM submission, and decoder/model teardown.
 The real decode callback is known to run, and guarded runtime inspection has
 now confirmed that it contains a readable JSON pointer for utterance lifecycle
 events. Observed values include `StartOfUtt`, `StartOfSpeech`, `EndOfSpeech`,
 and `EndOfUtt`. These are decoder activity events, not accepted wake results;
-the adapter therefore does not expose them as public events. A separate QEMU
+the adapter therefore does not expose them as public events. A separate emulator
 probe also called the
 preserved `libPryonDetector.so` helper used by
 `libAmazonKWD.so`; it created the model set and the stock multichannel decoder
@@ -26,7 +26,7 @@ names without a header or stronger evidence. Scores, certainty, timestamps,
 and near-miss meanings are still not exposed by the decode callback itself.
 
 The separately registered `PryonApi_SetJsondataCallback` is different from
-that activity callback. Runtime QEMU testing confirmed JSON containing
+that activity callback. Runtime emulator testing confirmed JSON containing
 `kwDetectionType=Accept`, `kwName=ALEXA`, a varying
 `kwClassificationScore`, and sample start/end indices for multiple human
 recordings. The adapter exposes those five firmware result fields. Certainty,
@@ -76,7 +76,7 @@ The adapter calls `PryonDecoder_Delete(decoder_id)` and then
 `PryonModelSet_Delete(decoder_id)` on normal and error exits after creation.
 The public decoder/model teardown is intentionally followed by process exit;
 unloading this firmware library with `dlclose` invokes a destructor path that
-is safe in the stock Android process but crashes in the minimal QEMU guest.
+is safe in the stock Android process but crashes in the minimal emulated guest.
 
 The decode callback's decoder id is validated. In the examined image, the
 opaque event has a pointer at offset `0x04` that resolves to JSON such as

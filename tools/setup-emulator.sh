@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
-CACHE=${PRYON_AFE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pryon-afe-runtime}
+CACHE=${PRYON_AFE_CACHE:-${PRYON_AFE_EXTERNAL:-$ROOT/.external}/emulator}
 FIRMWARE_OUT=${1:-$CACHE/firmware}
 KERNEL_DIR=$CACHE/linux-4.14.180
 KERNEL_URL=https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.14.180.tar.xz
@@ -11,9 +11,20 @@ FIRMWARE_URL=https://d1s31zyz7dcc2d.cloudfront.net/2026/8/3/f49aaff7-dd63-4d9c-9
 FIRMWARE_SHA256=64ab6d2dd85f8093abdd62c275d229c7e9fdd68e4d46892b48bdbd1d100d46d8
 ARCHIVE=$CACHE/linux-4.14.180.tar.xz
 
+verify_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$1" "$2" | sha256sum -c - >/dev/null
+  elif command -v shasum >/dev/null 2>&1; then
+    [ "$(shasum -a 256 "$2" | awk '{print $1}')" = "$1" ]
+  else
+    echo 'setup-emulator: missing SHA-256 tool (Linux: coreutils; macOS: shasum is built in)' >&2
+    exit 1
+  fi
+}
+
 need_command() {
   command -v "$1" >/dev/null 2>&1 && return 0
-  echo "setup-qemu: missing dependency: $1" >&2
+  echo "setup-emulator: missing dependency: $1" >&2
   echo "  Linux: sudo apt install $2" >&2
   echo "  macOS: brew install $3" >&2
   exit 1
@@ -32,9 +43,9 @@ fi
 if [ ! -s "$ARCHIVE" ]; then
   if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 "$KERNEL_URL" -o "$ARCHIVE"
   elif command -v wget >/dev/null 2>&1; then wget -O "$ARCHIVE" "$KERNEL_URL"
-  else echo 'setup-qemu: curl or wget is required' >&2; exit 1; fi
+  else echo 'setup-emulator: curl or wget is required' >&2; exit 1; fi
 fi
-printf '%s  %s\n' "$KERNEL_SHA256" "$ARCHIVE" | sha256sum -c - >/dev/null
+verify_sha256 "$KERNEL_SHA256" "$ARCHIVE"
 NEED_KERNEL=0
 if [ ! -s "$KERNEL_DIR/arch/arm/boot/zImage" ] ||
    [ ! -r "$KERNEL_DIR/.config" ] ||
@@ -46,11 +57,15 @@ fi
 if [ "$NEED_KERNEL" -eq 1 ]; then
   if [ ! -r "$KERNEL_DIR/Makefile" ]; then tar -xJf "$ARCHIVE" -C "$CACHE"; fi
   cd "$KERNEL_DIR"
+  # Linux 4.14 rejects source paths containing spaces even though the build
+  # itself supports them. The project directory is allowed to contain spaces,
+  # so disable only this obsolete guard in the cached, downloaded source.
+  sed -i 's/^ifneq (\$(words \$(subst :, ,\$(CURDIR))), 1)$/ifneq (1, 1)/' Makefile
   if [ ! -r .config ]; then
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- multi_v7_defconfig
   fi
   # The old 4.14 source does not build its unused ATA code with current GCC.
-  # QEMU's virt machine does not need ATA, so leave that driver out of the
+  # The emulator's virt machine does not need ATA, so leave that driver out of the
   # reproducible helper kernel.
   scripts/config --disable CONFIG_ATA
   scripts/config --disable CONFIG_SATA_AHCI
@@ -76,19 +91,19 @@ if [ "$NEED_KERNEL" -eq 1 ]; then
     ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KCFLAGS=-march=armv7-a zImage
 fi
 
-printf '{\n  "firmware_root": "%s",\n  "firmware_sha256": "%s",\n  "kernel": "%s",\n  "kernel_sha256": "%s",\n  "tools": {\n    "qemu_system_arm": "%s",\n    "arm_compiler": "%s"\n  }\n}\n' \
+printf '{\n  "firmware_root": "%s",\n  "firmware_sha256": "%s",\n  "kernel": "%s",\n  "kernel_sha256": "%s",\n  "tools": {\n    "emulator": "%s",\n    "arm_compiler": "%s"\n  }\n}\n' \
   "$FIRMWARE_OUT/system_root" "$FIRMWARE_SHA256" \
   "$KERNEL_DIR/arch/arm/boot/zImage" "$KERNEL_SHA256" \
   "$(qemu-system-arm --version | head -1)" "$(arm-linux-gnueabihf-gcc --version | head -1)" \
-  > "$CACHE/qemu-manifest.json"
+  > "$CACHE/emulator-manifest.json"
 
-cat > "$CACHE/qemu-env" <<EOF
-QEMU_FIRMWARE_ROOT=$FIRMWARE_OUT/system_root
-QEMU_KERNEL=$KERNEL_DIR/arch/arm/boot/zImage
+cat > "$CACHE/emulator-env" <<EOF
+EMULATOR_FIRMWARE_ROOT=$FIRMWARE_OUT/system_root
+EMULATOR_KERNEL=$KERNEL_DIR/arch/arm/boot/zImage
 FIRMWARE_SHA256=$FIRMWARE_SHA256
 KERNEL_SHA256=$KERNEL_SHA256
 EOF
-echo "QEMU_FIRMWARE_ROOT=$FIRMWARE_OUT/system_root"
-echo "QEMU_KERNEL=$KERNEL_DIR/arch/arm/boot/zImage"
-echo "QEMU setup complete; environment: $CACHE/qemu-env"
-echo "QEMU setup manifest: $CACHE/qemu-manifest.json"
+echo "EMULATOR_FIRMWARE_ROOT=$FIRMWARE_OUT/system_root"
+echo "EMULATOR_KERNEL=$KERNEL_DIR/arch/arm/boot/zImage"
+echo "Emulator setup complete; environment: $CACHE/emulator-env"
+echo "Emulator setup manifest: $CACHE/emulator-manifest.json"

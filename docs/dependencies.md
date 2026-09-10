@@ -23,11 +23,11 @@ make build-android
 ```
 
 The Android build does not need the proprietary libraries or models because
-they are loaded later on the Echo or in QEMU.
+they are loaded later on the Echo or in the emulator.
 
-## Firmware and QEMU tools
+## Firmware and emulator tools
 
-The reproducible QEMU setup additionally requires:
+The reproducible emulator setup additionally requires QEMU system emulation:
 
 ```sh
 sudo apt install qemu-system-arm gcc-arm-linux-gnueabihf make cpio curl unzip e2fsprogs
@@ -43,13 +43,13 @@ brew install cmake ninja python go ffmpeg shellcheck qemu cpio curl unzip e2fspr
 ```
 
 Android NDK is installed separately through Android Studio or `sdkmanager`.
-The Linux ARM kernel compiler and some QEMU guest-building steps are Linux
+The Linux ARM kernel compiler and some emulator guest-building steps are Linux
 or container oriented; macOS users may use a Linux VM/container for those
 steps.
 
 ## Live host microphone capture
 
-`tools/run-live-mic-qemu.sh` needs `ffmpeg`, Python 3, QEMU, the ARM compiler,
+`tools/run-live-mic-emulator.sh` needs `ffmpeg`, Python 3, QEMU, the ARM compiler,
 and `cpio`. It automatically selects the first available capture command:
 
 | Backend | Command | Debian/Ubuntu package | Homebrew package |
@@ -61,7 +61,11 @@ and `cpio`. It automatically selects the first available capture command:
 | ALSA | `arecord` | `alsa-utils` | not available natively on macOS |
 
 No backend is installed automatically. The live tool keeps the microphone on
-the host and sends audio to QEMU through a virtio-serial socket.
+the host and sends audio to the emulator through a virtio-serial socket.
+
+`tools/download-testdata.sh` downloads pinned `alexa.wav` and `nowake.wav`
+fixtures from the [MicroWakeWord test corpus](https://github.com/zserge/microwakeword/tree/bfaf3840114e/testdata)
+into `.external/audio/`. Their SHA-256 hashes are checked before they are used.
 
 ## Missing dependency errors
 

@@ -16,10 +16,10 @@ int main(void) {
   if (mknod("/dev/binder", S_IFCHR|0666, makedev(10,63)) < 0 && errno != EEXIST) perror("mknod binder");
   chmod("/dev/binder",0666);
   pid_t child = fork();
-  if (child < 0) { perror("fork qemu-init"); return 127; }
+  if (child < 0) { perror("fork emulator-init"); return 127; }
   if (child == 0) {
-    execl("/qemu-init.sh","/qemu-init.sh",(char *)0);
-    perror("exec qemu-init.sh");
+    execl("/emulator-init.sh","/emulator-init.sh",(char *)0);
+    perror("exec emulator-init.sh");
     _exit(127);
   }
   int status = 0;

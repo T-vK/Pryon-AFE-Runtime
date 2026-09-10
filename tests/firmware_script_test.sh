@@ -29,15 +29,34 @@ cat > "$TMP/bin/debugfs" <<'EOF'
 set -eu
 command=$2
 destination=${command#* / }
-mkdir -p "$destination/system/bin" "$destination/system/lib" \
-  "$destination/system/vendor/etc/audio-algorithms" "$destination/system/local/models/keyword/en-US/ALEXA"
-: > "$destination/system/bin/linker"
-: > "$destination/system/lib/libasp.so"
-: > "$destination/system/lib/libpryon.so"
-: > "$destination/system/vendor/etc/audio-algorithms/AFE.cfg"
-: > "$destination/system/local/models/keyword/en-US/ALEXA/pryon.manifest"
+mkdir -p "$destination/bin" "$destination/lib" \
+  "$destination/vendor/etc/audio-algorithms" "$destination/local/models/keyword/en-US/ALEXA"
+: > "$destination/bin/linker"
+: > "$destination/lib/libasp.so"
+: > "$destination/lib/libpryon.so"
+: > "$destination/vendor/etc/audio-algorithms/AFE.cfg"
+: > "$destination/local/models/keyword/en-US/ALEXA/pryon.manifest"
 EOF
 chmod +x "$TMP/bin/payload-dumper-go" "$TMP/bin/debugfs"
+# Force the fixture through the same extractor selected on the development
+# host. The real image extractor may return a non-zero status for skipped
+# symlinks, so the production script relies on its required-file checks.
+cat > "$TMP/bin/7z" <<'EOF'
+#!/bin/sh
+set -eu
+for arg in "$@"; do
+  case "$arg" in -o*) DEST=${arg#-o};; esac
+done
+mkdir -p "$DEST/system/bin" "$DEST/system/lib" \
+  "$DEST/system/vendor/etc/audio-algorithms" \
+  "$DEST/system/local/models/keyword/en-US/ALEXA"
+: > "$DEST/system/bin/linker"
+: > "$DEST/system/lib/libasp.so"
+: > "$DEST/system/lib/libpryon.so"
+: > "$DEST/system/vendor/etc/audio-algorithms/AFE.cfg"
+: > "$DEST/system/local/models/keyword/en-US/ALEXA/pryon.manifest"
+EOF
+chmod +x "$TMP/bin/7z"
 PATH="$TMP/bin:$PATH" PAYLOAD_DUMPER=payload-dumper-go \
   "$ROOT/tools/download-firmware.sh" "file://$TMP/fixture.bin" "$TMP/out" "$(sha256sum "$TMP/fixture.bin" | awk '{print $1}')" >/dev/null
 test -f "$TMP/out/images/system.img"

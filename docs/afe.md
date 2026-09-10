@@ -6,6 +6,12 @@ wake-word recognition. This project does not reimplement those algorithms; the
 
 ## Input and output
 
+By default, `afe` reads its nine-channel audio stream from stdin. With
+`--alsa`, stdin is not used: `afe` opens the ALSA capture device directly and
+reads the audio itself. The default ALSA endpoint is card 0, device 24, which
+is the Echo microphone-array endpoint tested with this project. Override it
+with `--card N` and `--device N` when using a different compatible endpoint.
+
 `afe` accepts interleaved 9-channel S24_3LE at 16 kHz:
 
 | Channels | Meaning |
@@ -36,8 +42,9 @@ The lookup order is:
 `--mock` explicitly selects `libasp-mock.so`. A missing real library is an
 error; the executable never silently changes a production run into a mock
 run. The current supported firmware profile is the parameterized ASP API:
-`asp_parameterized_init`, `asp_create_pipeline`, `asp_process`,
-`asp_destroy_pipeline`, and `asp_deinit`.
+`asp_parameterized_init`, `asp_create_pipeline`, `asp_process`, and
+`asp_destroy_pipeline`. `asp_deinit` is called when the firmware exports it,
+but it is optional in the supported profile.
 
 ## Configuration and failures
 

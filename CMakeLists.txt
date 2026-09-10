@@ -30,6 +30,9 @@ if(BUILD_TESTING)
   target_link_libraries(pryon_mock PRIVATE m)
   install(TARGETS asp_mock pryon_mock LIBRARY DESTINATION lib)
 
+  add_library(tinyalsa_mock SHARED mocks/libtinyalsa_mock.c)
+  set_target_properties(tinyalsa_mock PROPERTIES OUTPUT_NAME "tinyalsa-mock" PREFIX "lib")
+
   add_executable(pipeline-c examples/c/pipeline.c)
   add_test(NAME afe_mock COMMAND ${CMAKE_COMMAND} -E env
     ASP_LIB=$<TARGET_FILE:asp_mock>
@@ -63,6 +66,8 @@ if(BUILD_TESTING)
   add_test(NAME afe_conversion COMMAND ${CMAKE_COMMAND} -E env
     ASP_LIB=$<TARGET_FILE:asp_mock>
     ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/afe_conversion_test.py $<TARGET_FILE:afe>)
+  add_test(NAME afe_alsa COMMAND ${CMAKE_SOURCE_DIR}/tests/afe_alsa_test.sh
+    $<TARGET_FILE:afe> $<TARGET_FILE:asp_mock> $<TARGET_FILE:tinyalsa_mock>)
   add_test(NAME pryon_threshold COMMAND ${CMAKE_COMMAND} -E env
     PRYON_LIB=$<TARGET_FILE:pryon_mock>
     ${CMAKE_SOURCE_DIR}/tests/pryon_threshold_test.sh
@@ -72,6 +77,8 @@ if(BUILD_TESTING)
   add_test(NAME minimal_examples COMMAND ${CMAKE_SOURCE_DIR}/tests/examples_stream_test.sh
     ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
   add_test(NAME firmware_script COMMAND ${CMAKE_SOURCE_DIR}/tests/firmware_script_test.sh)
+  add_test(NAME emulator_helpers COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/emulator_helpers_test.py ${CMAKE_SOURCE_DIR})
   add_test(NAME converters COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/converters_test.py ${CMAKE_SOURCE_DIR})
   set_tests_properties(pipeline_c_mock PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -80,7 +87,7 @@ endif()
 if(BUILD_TESTING)
   add_custom_target(check
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS afe pryon asp_mock pryon_mock pipeline-c
+    DEPENDS afe pryon asp_mock pryon_mock tinyalsa_mock pipeline-c
     USES_TERMINAL)
 else()
   add_custom_target(check

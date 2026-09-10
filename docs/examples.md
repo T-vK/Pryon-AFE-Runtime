@@ -7,7 +7,7 @@ on standard input. `afe` writes mono S16LE, which is connected directly to
 
 The examples intentionally do not capture from a microphone, decode WAV files,
 resample, or invoke a media utility. Those choices keep the data format visible
-and make the examples useful on an Echo, in QEMU, or in a test harness.
+and make the examples useful on an Echo, in the emulator, or in a test harness.
 
 ## Bash
 

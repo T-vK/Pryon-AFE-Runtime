@@ -93,6 +93,13 @@ static int read_full(int fd, void *buffer, size_t size) {
   return 0;
 }
 
+static void signal_ready(void) {
+  const char *path = getenv("PRYON_READY_FILE");
+  if (!path || !*path) return;
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd >= 0) close(fd);
+}
+
 static void lower_copy(char *out, size_t size, const char *in) {
   size_t i = 0;
   for (; in[i] && i + 1 < size; ++i)
@@ -358,6 +365,9 @@ static void usage(FILE *out) {
   fprintf(out, "  --mock                         select libpryon-mock.so\n");
   fprintf(out, "  --models-dir/--root PATH       compatibility aliases for --model-base-path\n");
   fprintf(out, "  --locale/--keyword NAME        compatibility aliases\n");
+  fprintf(out, "  stdin:                         mono signed 16-bit little-endian PCM, 16 kHz\n");
+  fprintf(out, "  stdout:                        JSON Lines wake events (or text ids)\n");
+  fprintf(out, "  stderr:                        diagnostics and errors\n");
 }
 
 int main(int argc, char **argv) {
@@ -565,10 +575,12 @@ int main(int argc, char **argv) {
     goto fail;
   }
   int decoder_created = 1;
+  signal_ready();
 
   int status = 0;
   int16_t frame[PERIOD_FRAMES];
   int64_t timestamp = 0;
+  int restart_attempts = 0;
   for (;;) {
     int rc = read_full(STDIN_FILENO, frame, sizeof(frame));
     if (rc == 1) break;
@@ -586,19 +598,44 @@ int main(int argc, char **argv) {
       fprintf(stderr, "pryon: push timestamp=%lld frames=%d\n",
               (long long)timestamp, PERIOD_FRAMES);
     if (push(g_id, timestamp, frame, PERIOD_FRAMES, NULL) != 0) {
-      fprintf(stderr, "pryon: audio push failed\n");
-      status = 1;
-      break;
+      fprintf(stderr, "pryon: audio push failed; restarting decoder\n");
+      if (decoder_delete(g_id) != 0) {
+        fprintf(stderr, "pryon: decoder restart cleanup failed\n");
+      }
+      decoder_created = 0;
+      if (++restart_attempts > 3 || decoder_new(g_id, g_id, "pryon") != 0) {
+        fprintf(stderr, "pryon: decoder restart failed\n");
+        status = 1;
+        break;
+      }
+      decoder_created = 1;
+      restart_attempts = 0;
+      if (g_trace) fprintf(stderr, "pryon: decoder restarted\n");
+      continue;
     }
+    restart_attempts = 0;
     timestamp += PERIOD_FRAMES;
   }
   if (decoder_created) {
     if (g_trace) fprintf(stderr, "pryon: waiting for decoder backlog\n");
-    if (backlog_wait(g_id, -1) != 0) status = 1;
-    if (g_trace) fprintf(stderr, "pryon: ending decoder session\n");
-    if (session_end(g_id) != 0) status = 1;
-    if (g_trace) fprintf(stderr, "pryon: draining decoder backlog\n");
-    if (backlog_wait(g_id, -1) != 0) status = 1;
+    int wait_status = backlog_wait(g_id, -1);
+    if (wait_status != 0) {
+      /* The firmware can defensively restart a decoder after an event burst.
+       * Once that happens, SessionEnd/BacklogWait may assert because the
+       * pipeline has already been stopped.  Do not turn teardown into a
+       * second failure; delete the decoder and model set below. */
+      status = 1;
+      if (g_trace)
+        fprintf(stderr, "pryon: decoder backlog wait failed; skipping session drain\n");
+    } else {
+      if (g_trace) fprintf(stderr, "pryon: ending decoder session\n");
+      if (session_end(g_id) != 0) {
+        status = 1;
+      } else {
+        if (g_trace) fprintf(stderr, "pryon: draining decoder backlog\n");
+        if (backlog_wait(g_id, -1) != 0) status = 1;
+      }
+    }
     if (g_trace) fprintf(stderr, "pryon: deleting decoder\n");
     if (decoder_delete(g_id) != 0) status = 1;
     if (g_trace) fprintf(stderr, "pryon: decoder deleted\n");

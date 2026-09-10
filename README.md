@@ -28,7 +28,7 @@ $ cat ./alexa.wav | tools/convert-to-1ch.sh | pryon --wakeword alexa
 ```
 
 ```bash
-$ arecord -D hw:0,24 -t raw -f S24_3LE -c 9 -r 16000 | afe | pryon --wakeword alexa
+$ afe --alsa | pryon --wakeword alexa
 {"type":"accepted","id":"pryon_alexa","kwDetectionType":"Accept","kwName":"ALEXA","kwClassificationScore":0.999401,"kwSampleStartIndex":9760,"kwSampleEndIndex":24480}
 ```
 
@@ -37,14 +37,20 @@ $ arecord -D hw:0,24 -t raw -f S24_3LE -c 9 -r 16000 | afe | pryon --wakeword al
 speaker loopback channels 7-8. It writes mono S16LE audio. `pryon` reads that
 mono stream and writes one JSON event per detected wake word.
 
-```python-repl
+```bash
 $ afe --help
-usage: afe [--cfg PATH] [--lib PATH] [--mock]
+usage: afe [--alsa [--card N] [--device N]] [--cfg PATH] [--lib PATH] [--mock]
+  --alsa  capture from ALSA instead of stdin (default card 0, device 24)
+  --card N                      ALSA card (default: 0)
+  --device N                    ALSA device (default: 24)
+  --cfg PATH                    AFE.cfg path (default: /system/vendor/etc/audio-algorithms/AFE.cfg)
+  --lib PATH                    libasp.so or libasp-mock.so
+  --mock                        explicitly use libasp-mock.so
   stdin:  9-channel S24_3LE, 16 kHz
   stdout: mono S16LE, 16 kHz, 320-sample periods
 ```
 
-```python-repl
+```bash
 $ pryon --help
 usage: pryon [options]
   --list                         list available models
@@ -58,6 +64,9 @@ usage: pryon [options]
   --mock                         select libpryon-mock.so
   --models-dir/--root PATH       compatibility aliases for --model-base-path
   --locale/--keyword NAME        compatibility aliases
+  stdin:                         mono signed 16-bit little-endian PCM, 16 kHz
+  stdout:                        JSON Lines wake events (or text ids)
+  stderr:                        diagnostics and errors
 ```
 
 For audio files, `convert-to-9ch.sh` puts the source in all seven mic
@@ -84,30 +93,20 @@ On the tested Echo hardware, the microphone array is ALSA card 0, device 24
 seven microphones and channels 7-8 are the two speaker references. Requesting
 nine channels from an arbitrary ALSA device does not produce this layout.
 
-If `arecord` is installed on the Echo, capture that raw stream, pipe it through
-`afe`, and pipe the resulting mono audio into `pryon`:
+`afe` can open this Echo ALSA device directly. Stop the stock audio owner, then
+run the complete pipeline:
 
 ```sh
-adb shell 'arecord -q -D hw:0,24 -t raw -f S24_3LE -c 9 -r 16000 | /data/local/tmp/afe | /data/local/tmp/pryon'
+adb shell 'stop ledcontroller >/dev/null 2>&1; killall afe pryon >/dev/null 2>&1 || true; /data/local/tmp/afe --alsa | /data/local/tmp/pryon'
 ```
 
-The stock firmware includes `tinycap` rather than `arecord`. `tinycap` writes a
-WAV file, so capture and then remove its 44-byte WAV header before piping the
-PCM through the runtimes:
+After stopping the pipeline, restore the stock audio service with
+`adb shell start ledcontroller`.
 
-```sh
-adb shell 'tinycap /data/local/tmp/capture.wav -D 0 -d 24 -c 9 -r 16000 -b 24 -t 5'
-```
-
-```sh
-adb shell 'dd if=/data/local/tmp/capture.wav bs=1 skip=44 2>/dev/null | /data/local/tmp/afe | /data/local/tmp/pryon'
-```
-
-The `-D 0 -d 24` selection is important on the tested Echo: it is the ALSA
-endpoint that exposes the seven microphones followed by the two speaker
-references. A nine-channel request on another ALSA device does not guarantee
-that layout. Applications can also open `/dev/snd/pcmC0D24c` through ALSA
-directly and write each captured period to `afe` stdin.
+The defaults are card 0 and device 24. A different compatible endpoint can be
+selected with `afe --alsa --card N --device N`. Applications may also open
+`/dev/snd/pcmC0D24c` through ALSA directly and write each captured period to
+`afe` stdin.
 
 Pryon writes one JSON object for each accepted detection:
 
@@ -125,23 +124,26 @@ and explicitly named mock libraries for development on a regular Linux system.
 
 ## Run real AFE and Pryon without an Echo
 
-For debugging, `tools/run-live-mic-qemu.sh` captures audio from the host's
+For debugging, `tools/run-live-mic-emulator.sh` captures audio from the host's
 default microphone and runs the real ARMv7 `afe` and `pryon` binaries with the
-extracted Echo libraries inside QEMU. The microphone stays on the host; audio
-is sent to the guest through a private virtio-serial connection. PipeWire is
-selected automatically when available, with PulseAudio, JACK, SoX, and ALSA
-fallbacks.
+extracted Echo libraries inside an Echo emulator. The microphone stays on the
+host; audio is sent to the guest through a private virtio-serial connection.
+PipeWire is selected automatically when available, with PulseAudio, JACK, SoX,
+and ALSA fallbacks.
 
 ```sh
-$ ./tools/run-live-mic-qemu.sh
+$ ./tools/run-live-mic-emulator.sh
 {"type":"accepted","id":"pryon_alexa","kwDetectionType":"Accept","kwName":"ALEXA","kwClassificationScore":0.956937,"kwSampleStartIndex":10230720,"kwSampleEndIndex":10245760}
-{"type":"accepted","id":"pryon_alexa","..."}
 ```
 
 The script automatically finds or prepares the standard firmware and kernel
 cache and builds the Android binaries when needed. It runs until interrupted
-and normally prints only detected wake-word JSON events. Add `--verbose` when
-debugging the QEMU guest or proprietary-library setup.
+and waits for both real runtimes to finish initializing before opening the
+microphone, so audio cannot build up during emulator startup. Add `--verbose`
+when debugging the emulated guest or proprietary-library setup. Emulation may
+process the real AFE/Pryon workload slower than real time, which can cause
+delayed or increasing recognition latency. Use `--quiet` when the process must
+emit only Pryon JSON events.
 
 ## Why this project exists
 
@@ -186,7 +188,31 @@ ARMv7 binaries. See [development.md](docs/development.md) for the complete build
 and release workflow.
 
 See [Dependencies](docs/dependencies.md) for the required build, firmware,
-QEMU, converter, and live microphone tools on Linux and macOS.
+emulator, converter, and live microphone tools on Linux and macOS.
+
+## Test
+
+Run the host tests:
+
+```sh
+make test
+```
+
+Run the real-library file tests on an ADB-connected Echo, or use the emulator:
+
+```sh
+tools/test-real.sh
+tools/test-real.sh --mic --beep
+tools/test-real.sh --emulator
+tools/test-real.sh --emulator --mic --beep
+```
+
+The microphone variants are interactive and give each positive and negative
+check at most 10 seconds. `--beep` sounds only before the positive microphone
+check. On an Echo, the test temporarily stops the service that owns the capture
+device and restores it afterward. Emulator tests boot one guest and restart
+only the runtimes between checks. Test audio, firmware, and kernel files are
+kept under `.external/`.
 
 ## Documentation
 
@@ -195,7 +221,7 @@ QEMU, converter, and live microphone tools on Linux and macOS.
 - [Stream protocol](docs/protocol.md)
 - [Firmware and ABI findings](docs/firmware-abi.md)
 - [Firmware extraction](docs/firmware.md)
-- [QEMU integration testing](docs/qemu.md)
+- [Echo emulator testing](docs/emulator.md)
 - [Language examples](docs/examples.md)
 - [Mock libraries](docs/mocks.md)
 - [Dependencies](docs/dependencies.md)

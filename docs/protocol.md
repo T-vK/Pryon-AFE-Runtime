@@ -8,7 +8,10 @@ into `pryon`.
 
 ## `afe`
 
-stdin is interleaved 9-channel signed 24-bit little-endian PCM at 16 kHz.
+Normally, stdin is interleaved 9-channel signed 24-bit little-endian PCM at 16
+kHz. When `--alsa` is supplied, stdin is ignored and the process captures that
+same format directly from ALSA. The default ALSA card/device is 0/24; use
+`--card` and `--device` to override it.
 Each frame is 27 bytes. Channels 0-6 are microphones; channels 7-8 are
 speaker-reference inputs. stdout is mono signed 16-bit little-endian PCM at
 16 kHz in exact 320-sample / 640-byte periods.

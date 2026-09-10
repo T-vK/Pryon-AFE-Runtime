@@ -74,9 +74,9 @@ run_case() {
   name=$1
   input=$2
   expected=$3
-  log="$OUT/$name.qemu.log"
+  log="$OUT/$name.emulator.log"
   set +e
-  "$PROJECT_ROOT/tools/run-qemu-system.sh" \
+  "$PROJECT_ROOT/tools/run-emulator.sh" \
     --root "$ROOT" --kernel "$KERNEL" --mode pryon --binary "$BINARY" \
     --model-dir "$MODEL_DIR" --input "$input" >"$log" 2>&1
   status=$?

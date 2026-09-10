@@ -10,6 +10,16 @@ if [ -z "$SHA256" ]; then
   echo 'firmware: custom URLs require a SHA-256 checksum as the third argument' >&2
   exit 2
 fi
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  else echo 'firmware: missing SHA-256 tool (Linux: coreutils; macOS: shasum is built in)' >&2; exit 1
+  fi
+}
+verify_sha256() {
+  actual=$(sha256_file "$2")
+  [ "$actual" = "$1" ] || { echo "firmware: SHA-256 mismatch for $2" >&2; exit 1; }
+}
 WORK=${TMPDIR:-/tmp}/pryon-afe-firmware.$$
 STAGE="$OUT.tmp.$$"
 rm -rf "$STAGE"
@@ -19,7 +29,7 @@ ARCHIVE="$WORK/update.bin"
 if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 "$URL" -o "$ARCHIVE"
 elif command -v wget >/dev/null 2>&1; then wget -O "$ARCHIVE" "$URL"
 else echo 'firmware: missing dependency: curl or wget' >&2; echo '  Linux: sudo apt install curl' >&2; echo '  macOS: brew install curl' >&2; exit 1; fi
-printf '%s  %s\n' "$SHA256" "$ARCHIVE" | sha256sum -c - >/dev/null
+verify_sha256 "$SHA256" "$ARCHIVE"
 command -v unzip >/dev/null 2>&1 || { echo 'firmware: missing dependency: unzip' >&2; echo '  Linux: sudo apt install unzip' >&2; echo '  macOS: brew install unzip' >&2; exit 1; }
 unzip -q "$ARCHIVE" -d "$WORK/ota"
 test -f "$WORK/ota/payload.bin" || { echo 'firmware: OTA has no payload.bin' >&2; exit 1; }
@@ -45,22 +55,35 @@ cp -a "$WORK/ota/." "$STAGE/"
 find "$WORK/images" -maxdepth 1 -type f -name '*.img' -exec cp -f {} "$STAGE/images/" \;
 SYSTEM_IMG="$STAGE/images/system.img"
 test -f "$SYSTEM_IMG" || { echo "firmware: system.img was not produced" >&2; exit 1; }
-if command -v debugfs >/dev/null 2>&1; then
+mkdir -p "$STAGE/system_root"
+if command -v 7z >/dev/null 2>&1; then
+  # 7z may return 2 for symlinks it refuses to recreate; the required-file
+  # checks below decide whether extraction was actually complete.
+  7z x -y "$SYSTEM_IMG" "-o$STAGE/system_root" >/dev/null 2>&1 || true
+elif command -v debugfs >/dev/null 2>&1; then
   debugfs -R "rdump / $STAGE/system_root" "$SYSTEM_IMG" >/dev/null 2>&1
-elif command -v 7z >/dev/null 2>&1; then
-  7z x -y "$SYSTEM_IMG" "-o$STAGE/system_root" >/dev/null
 else
   echo 'firmware: missing dependency: debugfs or 7z' >&2
   echo '  Linux: sudo apt install e2fsprogs (or p7zip-full)' >&2
   echo '  macOS: brew install e2fsprogs p7zip' >&2
   exit 1
 fi
+for required in \
+  "$STAGE/system_root/system/bin/linker" \
+  "$STAGE/system_root/system/lib/libasp.so" \
+  "$STAGE/system_root/system/lib/libpryon.so" \
+  "$STAGE/system_root/system/vendor/etc/audio-algorithms/AFE.cfg"; do
+  if [ ! -e "$required" ]; then
+    echo "firmware: extracted system is missing $required" >&2
+    exit 1
+  fi
+done
 printf '{\n  "firmware_url": "%s",\n  "firmware_sha256": "%s",\n  "payload_dumper": "%s",\n  "files": {\n    "system_img_sha256": "%s",\n    "libasp_sha256": "%s",\n    "libpryon_sha256": "%s",\n    "afe_cfg_sha256": "%s"\n  }\n}\n' \
   "$URL" "$SHA256" "${PAYLOAD_DUMPER_VERSION:-external}" \
-  "$(sha256sum "$SYSTEM_IMG" | awk '{print $1}')" \
-  "$(sha256sum "$STAGE/system_root/system/lib/libasp.so" | awk '{print $1}')" \
-  "$(sha256sum "$STAGE/system_root/system/lib/libpryon.so" | awk '{print $1}')" \
-  "$(sha256sum "$STAGE/system_root/system/vendor/etc/audio-algorithms/AFE.cfg" | awk '{print $1}')" \
+  "$(sha256_file "$SYSTEM_IMG")" \
+  "$(sha256_file "$STAGE/system_root/system/lib/libasp.so")" \
+  "$(sha256_file "$STAGE/system_root/system/lib/libpryon.so")" \
+  "$(sha256_file "$STAGE/system_root/system/vendor/etc/audio-algorithms/AFE.cfg")" \
   > "$STAGE/manifest.json"
 rm -rf "$OUT"
 mv "$STAGE" "$OUT"

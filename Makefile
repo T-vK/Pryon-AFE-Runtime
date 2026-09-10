@@ -2,7 +2,7 @@
 BUILD ?= build
 DIST ?= dist
 
-.PHONY: help configure build test check local-ci build-android package clean firmware qemu-test qemu-system-test qemu-setup live-mic-qemu device-test
+.PHONY: help configure build test check local-ci build-android package clean firmware emulator-test emulator-pipeline-test setup-emulator live-mic-emulator test-real
 help:
 	@echo 'make configure       Configure the host build'
 	@echo 'make build           Build binaries and mocks'
@@ -11,11 +11,11 @@ help:
 	@echo 'make build-android   Cross-build Android ARMv7/Bionic targets'
 	@echo 'make package         Create individual release files and checksums'
 	@echo 'make firmware        Download and unpack the default firmware'
-	@echo 'make qemu-test       Run a supplied firmware root under QEMU'
-	@echo 'make qemu-system-test Run real AFE/Pryon with an ARM kernel under QEMU system emulation'
-	@echo 'make qemu-setup      Download firmware and build the pinned QEMU kernel in the external cache'
-	@echo 'make live-mic-qemu   Stream the host microphone through real libraries in QEMU'
-	@echo 'make device-test     Run real-library smoke tests on an ADB-connected Echo'
+	@echo 'make emulator-test   Run Pryon in the Echo emulator'
+	@echo 'make emulator-pipeline-test Run real AFE/Pryon in the Echo emulator'
+	@echo 'make setup-emulator  Download firmware and build the pinned emulator kernel'
+	@echo 'make live-mic-emulator Stream the host microphone through the Echo emulator'
+	@echo 'make test-real       Run real-library file tests; add REAL_TEST_ARGS="--mic --beep" for microphone tests'
 
 configure:
 	cmake -S . -B $(BUILD) -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -50,23 +50,22 @@ package: build
 firmware:
 	tools/download-firmware.sh
 
-qemu-test: build-android
-	@test -n "$(FIRMWARE_ROOT)" -a -n "$(QEMU_KERNEL)" || { echo 'set FIRMWARE_ROOT and QEMU_KERNEL'; exit 1; }
-	tools/run-qemu-system.sh --root $(FIRMWARE_ROOT) --kernel $(QEMU_KERNEL) --binary build-android/pryon --mode pryon
+emulator-test: build-android
+	@test -n "$(FIRMWARE_ROOT)" -a -n "$(EMULATOR_KERNEL)" || { echo 'set FIRMWARE_ROOT and EMULATOR_KERNEL'; exit 1; }
+	tools/run-emulator.sh --root $(FIRMWARE_ROOT) --kernel $(EMULATOR_KERNEL) --binary build-android/pryon --mode pryon
 
-qemu-system-test: build-android
-	@test -n "$(FIRMWARE_ROOT)" -a -n "$(QEMU_KERNEL)" -a -n "$(QEMU_INPUT)" || { echo 'set FIRMWARE_ROOT, QEMU_KERNEL, and QEMU_INPUT'; exit 1; }
-	tools/run-qemu-system.sh --root $(FIRMWARE_ROOT) --kernel $(QEMU_KERNEL) --mode pipeline --afe-binary build-android/afe --pryon-binary build-android/pryon --input $(QEMU_INPUT) --require-event
+emulator-pipeline-test: build-android
+	@test -n "$(FIRMWARE_ROOT)" -a -n "$(EMULATOR_KERNEL)" -a -n "$(EMULATOR_INPUT)" || { echo 'set FIRMWARE_ROOT, EMULATOR_KERNEL, and EMULATOR_INPUT'; exit 1; }
+	tools/run-emulator.sh --root $(FIRMWARE_ROOT) --kernel $(EMULATOR_KERNEL) --mode pipeline --afe-binary build-android/afe --pryon-binary build-android/pryon --input $(EMULATOR_INPUT) --require-event
 
-qemu-setup:
-	tools/setup-qemu.sh
+setup-emulator:
+	tools/setup-emulator.sh
 
-live-mic-qemu: build-android
-	@test -n "$(FIRMWARE_ROOT)" -a -n "$(QEMU_KERNEL)" || { echo 'set FIRMWARE_ROOT and QEMU_KERNEL'; exit 1; }
-	tools/run-live-mic-qemu.sh --root $(FIRMWARE_ROOT) --kernel $(QEMU_KERNEL) --afe-binary build-android/afe --pryon-binary build-android/pryon
+live-mic-emulator:
+	tools/run-live-mic-emulator.sh
 
-device-test: build-android
-	tools/test-device.sh
+test-real: build-android
+	tools/test-real.sh $(REAL_TEST_ARGS)
 
 clean:
 	rm -rf build build-android dist

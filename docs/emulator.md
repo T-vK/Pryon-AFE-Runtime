@@ -1,21 +1,21 @@
-# QEMU
+# Echo emulator
 
-`tools/setup-qemu.sh` is the reproducible entry point. It downloads and verifies
-the firmware and pinned kernel into an external cache, builds the ARMv7 kernel,
-and writes a machine-readable `qemu-env` manifest. `tools/run-qemu-system.sh`
-then runs a selected Android ARMv7 binary with the firmware userspace and
-libraries.
+`tools/setup-emulator.sh` is the reproducible entry point. It downloads and
+verifies the firmware and pinned kernel into an external cache, builds the
+ARMv7 kernel, and writes machine-readable `emulator-env` and
+`emulator-manifest.json` files. `tools/run-emulator.sh` then runs a selected
+Android ARMv7 binary with the firmware userspace and libraries.
 
 This is sufficient for real Pryon model construction/PCM processing, real AFE
 processing, and direct real-library wake-event testing. For
 real AFE processing, use system emulation with an ARMv7 kernel. `libasp.so`
 requires the Android init-style D-Bus socket activation and binder device;
-`tools/run-qemu-system.sh` supplies both, starts the firmware's own
+`tools/run-emulator.sh` supplies both, starts the firmware's own
 `servicemanager` and `dbus-daemon`, and runs the real graph against finite PCM
 input. No proprietary file is copied into this repository.
 
 ```sh
-tools/run-qemu-system.sh \
+tools/run-emulator.sh \
   --root /path/to/extracted/system_root \
   --kernel /path/to/armv7/zImage \
   --binary build-android/afe --mode afe
@@ -37,7 +37,7 @@ For a positive end-to-end check, prepare a nine-channel S24_3LE fixture and
 run:
 
 ```sh
-tools/run-qemu-system.sh \
+tools/run-emulator.sh \
   --root /path/to/system_root \
   --kernel /path/to/zImage \
   --mode pipeline \
@@ -75,32 +75,47 @@ tools/internal/collect-pryon-traces.sh \
 
 The collector adds deterministic silence and noise controls and attenuation
 and clipping variants for every corpus recording. Each case gets its own raw
-input copy, SHA-256, byte count, timestamps, exit status, and complete QEMU
+input copy, SHA-256, byte count, timestamps, exit status, and complete emulator
 console log. The logs include `PRYON_DUMP_EVENTS=1` callback bytes, loader and
 model messages, lifecycle traces, and process status. Results are indexed in
 `index.jsonl`. The generated trace directory is intentionally outside source
 control because recordings and firmware logs may contain sensitive material.
 
-QEMU execution is a local integration tool. GitHub Actions uses host mocks and
+The emulator is a local integration tool. GitHub Actions uses host mocks and
 does not download or execute proprietary firmware by default.
 
 ## Live host microphone input
 
-`tools/run-live-mic-qemu.sh` keeps the host microphone on the host and streams
-converted audio into a virtio-serial port. The guest still executes the real
-ARMv7 `afe` and `pryon` binaries with the extracted firmware libraries; no USB,
-ALSA, or other host audio device is passed through to QEMU.
+`tools/run-live-mic-emulator.sh` keeps the host microphone on the host and
+streams converted audio into a virtio-serial port. The guest still executes
+the real ARMv7 `afe` and `pryon` binaries with the extracted firmware
+libraries; no USB, ALSA, or other host audio device is passed through to the
+emulator.
 
 ```sh
-tools/run-live-mic-qemu.sh
+tools/run-live-mic-emulator.sh
 ```
 
 With the standard cache layout, the script finds or prepares the firmware and
-kernel in `$HOME/.cache/pryon-afe-runtime`, finds or builds the Android
+kernel in `.external/emulator/`, finds or builds the Android
 ARMv7 runtimes in `build-android/`, and uses the default Alexa model. Override
 individual paths with `--root`, `--kernel`, `--afe-binary`, `--pryon-binary`,
-or `--model-dir` when needed. Use `--verbose` to show QEMU boot and capture
-diagnostics.
+or `--model-dir` when needed. The live runner waits for AFE and Pryon to signal
+that their real libraries and model are initialized before it starts the host
+capture stream. Use `--verbose` to show emulator boot and capture diagnostics, or
+`--quiet` to emit only JSON wake events.
+
+When used by `tools/test-real.sh --emulator --mic`, the emulator is booted
+once. A private control channel restarts only `afe` and `pryon` between every
+test, avoiding another slow boot and preventing decoder state from carrying
+between checks.
+
+The interactive run checks, in order, positive microphone audio, negative
+microphone audio, the positive file, and the negative file. Every check lasts
+at most 10 seconds. Positive checks finish as soon as a wake event arrives;
+negative checks fail immediately if one arrives. `--beep` sounds only before
+the positive microphone prompt. File paths and emulator diagnostics are shown
+only with `--verbose`.
 
 The tool selects the first available host capture command in this order:
 PipeWire (`pw-record` or `pw-cat`), PulseAudio (`parec`), JACK

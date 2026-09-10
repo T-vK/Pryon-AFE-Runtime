@@ -1,6 +1,6 @@
 # Contributing
 
-Use Conventional Commits. Recommended scopes are `afe`, `pryon`, `mock`, `abi`, `examples`, `firmware`, `qemu`, `docs`, `build`, and `ci`.
+Use Conventional Commits. Recommended scopes are `afe`, `pryon`, `mock`, `abi`, `examples`, `firmware`, `emulator`, `docs`, `build`, and `ci`.
 
 Examples:
 
